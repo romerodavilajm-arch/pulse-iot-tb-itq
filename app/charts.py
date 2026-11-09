@@ -38,12 +38,14 @@ def _clock(seconds: float) -> str:
     return f"{s // 60}:{s % 60:02d}" if s >= 60 else f"{s} s"
 
 
-def ir_signal(samples: list[dict]) -> dict | None:
+def ir_signal(samples: list[dict], beats: list[float] | None = None) -> dict | None:
     """Polilínea de la señal IR a lo largo del tiempo.
 
     Para que se vean los latidos: se quita la deriva lenta (media móvil de
     ~1,5 s) y se invierte el signo, porque en PPG la luz IR que vuelve al
     sensor *baja* cuando llega el pulso. Así cada pico de la línea es un latido.
+    `beats` son los instantes (ms) de los latidos que detectó el analizador;
+    se marcan encima de la gráfica.
     Devuelve None si no hay muestras suficientes para dibujar algo útil.
     """
     clean = sorted(
@@ -106,7 +108,14 @@ def ir_signal(samples: list[dict]) -> dict | None:
         ticks.append({"x": round(x, 1), "label": _clock(s)})
         s += every
 
+    beat_x = [
+        round(PAD + (b - t0) / (t1 - t0) * (WIDTH - 2 * PAD), 1)
+        for b in beats or []
+        if t0 <= b <= t1
+    ]
+
     return {
+        "beats": beat_x,
         "width": WIDTH,
         "height": HEIGHT,
         "points": points,

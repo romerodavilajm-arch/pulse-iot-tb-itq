@@ -70,24 +70,24 @@
 </head>
 <body>
 {%- set names = {
-  "ir_cv":   "Variación del pulso (luz infrarroja)",
-  "red_cv":  "Variación del pulso (luz roja)",
-  "ir_diff": "Cambios rápidos de un instante a otro",
+  "hr_bpm":   "Pulsaciones por minuto",
+  "rmssd_ms": "Variación de un latido al siguiente (RMSSD)",
+  "sdnn_ms":  "Variabilidad global del ritmo (SDNN)",
 } -%}
 {%- set plain = {
-  "ir_cv":   "Mide cuánto sube y baja la señal respecto a su nivel medio. Un valor bajo indica un pulso regular y una mano quieta; un valor alto, un pulso más agitado o movimiento.",
-  "red_cv":  "Lo mismo, medido con la luz roja. Sirve para confirmar lo que ve la luz infrarroja: si ambas coinciden, el resultado es más fiable.",
-  "ir_diff": "Mide lo brusco que cambia la señal de una lectura a la siguiente. Valores bajos indican una señal suave y tranquila; valores altos, cambios rápidos o sacudidas.",
+  "hr_bpm":   "Cuántas veces late tu corazón en un minuto. En reposo lo habitual es entre 60 y 100; con nervios, café o tras moverse, sube.",
+  "rmssd_ms": "Un corazón sano no late como un metrónomo: el tiempo entre latidos cambia un poco de uno a otro. En reposo esa variación es mayor; con estrés el ritmo se vuelve más rígido y la variación baja.",
+  "sdnn_ms":  "Cuánto varía el tiempo entre latidos a lo largo de toda la medición. Un valor bajo indica un ritmo poco flexible, algo que se asocia al estrés o al cansancio.",
 } -%}
 {%- set theory = {
-  "ir_cv":   "Con cada latido llega algo más de sangre al dedo, que absorbe más luz. Por eso la señal sube y baja al ritmo del corazón.",
-  "red_cv":  "Los pulsioxímetros de hospital usan esta misma pareja de luces, roja e infrarroja, para medir el pulso y el oxígeno.",
-  "ir_diff": "En reposo el corazón late de forma pausada y la señal cambia suavemente. Con nervios o al moverse, cambia de golpe.",
+  "hr_bpm":   "Cada pico de la gráfica es un latido: los contamos y medimos el tiempo que pasa entre uno y otro.",
+  "rmssd_ms": "Refleja la actividad del sistema nervioso que nos calma (parasimpático). Es la medida de variabilidad más usada en registros cortos.",
+  "sdnn_ms":  "Cinco minutos es la duración estándar para medir esta variabilidad en registros cortos.",
 } -%}
 {%- set verdicts = {
-  "no_stress":   ("Sin señales de estrés", "Tu pulso se ha mantenido regular durante la medición. Es el resultado esperable en reposo."),
-  "stress":      ("Posibles señales de estrés", "Tu pulso ha mostrado más variación de lo habitual en reposo. Puede deberse a nervios, actividad reciente o a haber movido el dedo."),
-  "low_quality": ("Lectura no válida", "La señal no tuvo calidad suficiente para analizarla. Suele pasar si el dedo no cubre bien el sensor o se mueve. Repite la medición con el dedo apoyado y quieto."),
+  "no_stress":   ("Sin señales de estrés", "Tu pulso y la variación entre tus latidos están en valores habituales de reposo."),
+  "stress":      ("Posibles señales de estrés", "Tu corazón latía más rápido o con menos variación entre latidos de lo esperable en reposo. Puede deberse a nervios, cansancio, café o actividad reciente."),
+  "low_quality": ("Lectura no válida", "No se distinguieron latidos regulares en la señal. Suele pasar si el dedo no cubre bien el sensor o se mueve. Repite la medición con el dedo apoyado y quieto."),
 } -%}
 {%- set v = verdicts.get(label, (label, "")) -%}
   <main class="sheet">
@@ -112,7 +112,7 @@
       {% if label != "low_quality" %}
         {%- set seg_w = 560 / total_rules -%}
         <svg class="chart" viewBox="0 6 600 70" role="img"
-             aria-label="Puntuación: {{ rules_met }} de {{ total_rules }} indicadores por encima de su umbral">
+             aria-label="Puntuación: {{ rules_met }} de {{ total_rules }} indicadores fuera de su límite">
           {% for i in range(total_rules) %}
             <rect x="{{ 20 + i * seg_w + 2 }}" y="22" width="{{ seg_w - 4 }}" height="22" rx="4"
                   fill="{{ ('#a63d3d' if label == 'stress' else '#2f7d4f') if i < rules_met else '#e4e9e7' }}"/>
@@ -124,10 +124,10 @@
             <text x="{{ 20 + i * seg_w }}" y="70" font-size="13" fill="#5d6b72" text-anchor="middle">{{ i }}</text>
           {% endfor %}
         </svg>
-        <div class="legend"><span>Bloques llenos: indicadores por encima de su límite</span><span>Línea discontinua: a partir de aquí, posible estrés</span></div>
+        <div class="legend"><span>Bloques llenos: indicadores fuera de su límite</span><span>Línea discontinua: a partir de aquí, posible estrés</span></div>
         <p><b>Puntuación: {{ rules_met }} de {{ total_rules }}</b> <span class="muted">({{ (score * 100) | round | int }} %)</span>.
-          Cuenta cuántos de los {{ total_rules }} indicadores de abajo han superado su límite. Cuantos menos, más tranquilo
-          estaba tu pulso; con {{ stress_min_rules }} o más, el resultado se marca como posible estrés.</p>
+          Cuenta cuántos de los {{ total_rules }} indicadores de abajo están fuera de su límite. Cuantos menos, más tranquilo
+          estaba tu corazón; con {{ stress_min_rules }} o más, el resultado se marca como posible estrés.</p>
       {% endif %}
     </section>
 
@@ -148,8 +148,11 @@
           <text x="{{ tk.x }}" y="{{ signal.height + 16 }}" font-size="12" fill="#5d6b72" text-anchor="{{ 'start' if loop.first else ('end' if loop.last else 'middle') }}">{{ tk.label }}</text>
         {% endfor %}
         <polyline points="{{ signal.points }}" fill="none" stroke="#2c7a74" stroke-width="1.6" stroke-linejoin="round"/>
+        {% for bx in signal.beats %}
+          <circle cx="{{ bx }}" cy="4" r="3" fill="#a63d3d"/>
+        {% endfor %}
       </svg>
-      <div class="legend"><span>Eje horizontal: tiempo desde el inicio de la medición</span><span>Cada pico ≈ un latido</span></div>
+      <div class="legend"><span>Eje horizontal: tiempo desde el inicio de la medición</span><span>Cada pico ≈ un latido</span>{% if signal.beats %}<span><span style="color:#a63d3d">●</span> Latido detectado por el análisis</span>{% endif %}</div>
       {% if label == "low_quality" %}
         <p class="small"><b>En esta medición</b> la línea no muestra ondas regulares: es ruido, no latidos.
           Por eso no se ha podido calcular el resultado.</p>
@@ -157,7 +160,8 @@
       <p class="small">
         <b>Cómo leerla:</b> una línea con ondas parecidas y espaciadas por igual indica una buena lectura y un pulso
         regular. Ondas muy desiguales o saltos grandes suelen indicar movimiento del dedo. Una línea casi plana o
-        ruidosa, sin ondas claras, indica que el sensor no captó bien el pulso.
+        ruidosa, sin ondas claras, indica que el sensor no captó bien el pulso.{% if signal.beats %} Los puntos rojos marcan los latidos
+        que ha encontrado el análisis: si coinciden con los picos, las medidas de abajo son fiables.{% endif %}
       </p>
     </section>
     {% endif %}
@@ -165,32 +169,29 @@
     {% if label != "low_quality" %}
     <section aria-labelledby="s-metrics">
       <h2 id="s-metrics">Indicadores</h2>
-      <p class="muted small">Cada uno compara tu señal con un límite. Por debajo del límite es lo esperable en reposo.</p>
-      {% if metrics.windows is defined and metrics.windows > 1 %}
-        <p class="muted small">La medición se divide en {{ metrics.windows }} tramos de 30 segundos y cada indicador es el
-          valor típico (la mediana) de esos tramos. Así los cambios lentos a lo largo de los minutos, como la respiración
-          o la presión del dedo, no se confunden con el pulso.</p>
-      {% endif %}
-      {% for key in ["ir_cv", "red_cv", "ir_diff"] if key in metrics %}
-        {%- set val = metrics[key] -%}
-        {%- set thr = thresholds[key] -%}
-        {%- set high = val > thr -%}
+      <p class="muted small">Se calculan a partir del tiempo entre latidos. Cada uno se compara con un límite de
+        referencia para adultos en reposo.</p>
+      {% for ind in indicators if ind.key in metrics %}
+        {%- set val = metrics[ind.key] -%}
+        {%- set thr = ind.threshold -%}
+        {%- set bad = (val > thr) if ind.bad == "above" else (val < thr) -%}
         {%- set fill = [val / (2 * thr), 1] | min -%}
         <div class="metric">
           <div class="metric-head">
-            <h3>{{ names[key] }}</h3>
-            <span><span class="value">{{ "%.2f" | format(val * 100) }} %</span>
-              <span class="chip {{ 'high' if high else 'low' }}">{{ "por encima del límite" if high else "dentro de lo normal" }}</span></span>
+            <h3>{{ names[ind.key] }}</h3>
+            <span><span class="value">{{ "%.0f" | format(val) }} {{ ind.unit }}</span>
+              <span class="chip {{ 'high' if bad else 'low' }}">{{ ("por encima del límite" if ind.bad == "above" else "por debajo del límite") if bad else "dentro de lo normal" }}</span></span>
           </div>
           <svg class="chart" viewBox="0 0 600 30" role="img"
-               aria-label="{{ '%.2f' | format(val * 100) }} % frente a un límite de {{ '%.2f' | format(thr * 100) }} %">
+               aria-label="{{ '%.0f' | format(val) }} {{ ind.unit }} frente a un límite de {{ thr }} {{ ind.unit }}">
             <rect x="0" y="8" width="600" height="12" rx="6" fill="#e4e9e7"/>
-            <rect x="0" y="8" width="{{ (fill * 600) | round(1) }}" height="12" rx="6" fill="{{ '#a63d3d' if high else '#2f7d4f' }}"/>
+            <rect x="0" y="8" width="{{ (fill * 600) | round(1) }}" height="12" rx="6" fill="{{ '#a63d3d' if bad else '#2f7d4f' }}"/>
             <line x1="300" y1="2" x2="300" y2="26" stroke="#1f2a30" stroke-width="2" stroke-dasharray="4 3"/>
           </svg>
-          <p class="muted small" style="margin-top:0">Límite: {{ "%.2f" | format(thr * 100) }} % (línea discontinua)</p>
-          <p>{{ plain[key] }}</p>
-          <p class="muted small">{{ theory[key] }}</p>
+          <p class="muted small" style="margin-top:0">Límite: {{ thr }} {{ ind.unit }} (línea discontinua). Posible estrés si queda
+            {{ "por encima" if ind.bad == "above" else "por debajo" }}.</p>
+          <p>{{ plain[ind.key] }}</p>
+          <p class="muted small">{{ theory[ind.key] }}</p>
         </div>
       {% endfor %}
     </section>
@@ -206,6 +207,10 @@
             <span class="muted small">({{ "buen contacto del dedo" if metrics.ir_mean >= min_ir_mean else "contacto débil" }})</span></dd>
         {% endif %}
         <dt>Lecturas registradas</dt><dd>{{ n_samples }}</dd>
+        {% if metrics.beats is defined %}
+          <dt>Latidos detectados</dt>
+          <dd>{{ metrics.beats }} <span class="muted small">({{ metrics.valid_pct }} % de intervalos válidos)</span></dd>
+        {% endif %}
         {% if started_at %}<dt>Inicio</dt><dd>{{ started_at }}</dd>{% endif %}
         {% if finished_at %}<dt>Fin</dt><dd>{{ finished_at }}</dd>{% endif %}
       </dl>
@@ -214,7 +219,7 @@
           y el resultado no es fiable.</p>
       {% endif %}
       <div class="notice">
-        Esta ficha es una demostración académica con reglas sencillas. No es un diagnóstico médico: si te
+        Esta ficha es una demostración académica: los límites son valores generales, no ajustados a tu caso. No es un diagnóstico médico: si te
         preocupa tu salud, consulta con un profesional.
       </div>
       <p class="muted small">Análisis calculado en {{ elapsed_ms }} ms.</p>
