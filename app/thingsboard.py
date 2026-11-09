@@ -13,7 +13,9 @@ import time
 
 import httpx
 
-TIMEOUT_S = 10.0
+# Una sesión de 5 minutos trae miles de muestras (cientos de KB de JSON):
+# damos margen para que ThingsBoard Cloud la sirva aunque vaya lento.
+TIMEOUT_S = 30.0
 
 SESSION_KEYS = ["pin", "samples", "sample_count", "started_at", "finished_at"]
 # Para listar sesiones en /admin no pedimos `samples` (es el campo pesado).

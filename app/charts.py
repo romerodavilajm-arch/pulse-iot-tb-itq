@@ -11,6 +11,13 @@ HEIGHT = 160
 PAD = 8
 MAX_POINTS = 400
 
+# Las sesiones duran ~5 minutos. En 600 px no caben 300 latidos: se verían
+# como una mancha. Si la medición dura más de MAX_FULL_S, se dibuja un
+# fragmento de DETAIL_S segundos del centro de la medición, donde la señal
+# suele ser más estable que al apoyar o retirar el dedo.
+MAX_FULL_S = 30
+DETAIL_S = 20
+
 
 def _moving_average(values: list[float], window: int) -> list[float]:
     """Media móvil centrada (ventana impar), para quitar la deriva lenta."""
@@ -23,6 +30,12 @@ def _moving_average(values: list[float], window: int) -> list[float]:
         lo, hi = max(0, i - half), min(len(values), i + half + 1)
         out.append((prefix[hi] - prefix[lo]) / (hi - lo))
     return out
+
+
+def _clock(seconds: float) -> str:
+    """Segundos desde el inicio -> "2:30" (o "25 s" si no llega al minuto)."""
+    s = int(round(seconds))
+    return f"{s // 60}:{s % 60:02d}" if s >= 60 else f"{s} s"
 
 
 def ir_signal(samples: list[dict]) -> dict | None:
@@ -46,8 +59,8 @@ def ir_signal(samples: list[dict]) -> dict | None:
     if len(clean) < 10:
         return None
 
-    t0, t1 = clean[0][0], clean[-1][0]
-    duration_s = (t1 - t0) / 1000
+    start, end = clean[0][0], clean[-1][0]
+    duration_s = (end - start) / 1000
     if duration_s <= 0:
         return None
 
@@ -57,6 +70,17 @@ def ir_signal(samples: list[dict]) -> dict | None:
     window = max(3, int(fs * 1.5) | 1)
     baseline = _moving_average(ir, window)
     pulse = [b - v for v, b in zip(ir, baseline)]
+
+    # Fragmento a dibujar: toda la medición si es corta, o DETAIL_S del centro.
+    t0, t1 = start, end
+    if duration_s > MAX_FULL_S:
+        mid = (start + end) / 2
+        t0, t1 = mid - DETAIL_S * 500, mid + DETAIL_S * 500
+        keep = [i for i, ti in enumerate(t) if t0 <= ti <= t1]
+        t = [t[i] for i in keep]
+        pulse = [pulse[i] for i in keep]
+        if len(t) < 10:
+            return None
 
     step = max(1, len(pulse) // MAX_POINTS)
     t, pulse = t[::step], pulse[::step]
@@ -69,11 +93,26 @@ def ir_signal(samples: list[dict]) -> dict | None:
         for ti, v in zip(t, pulse)
     )
 
-    # Marcas del eje X cada 5 s (o cada segundo si la medición es muy corta).
-    every = 5 if duration_s >= 10 else 1
-    ticks = [
-        {"x": round(PAD + s * 1000 / (t1 - t0) * (WIDTH - 2 * PAD), 1), "label": f"{s} s"}
-        for s in range(0, int(duration_s) + 1, every)
-    ]
+    # Marcas del eje X cada 5 s (o cada segundo si el tramo es muy corto),
+    # rotuladas con el tiempo desde el inicio de la medición.
+    shown_s = (t1 - t0) / 1000
+    every = 5 if shown_s >= 10 else 1
+    offset_s = (t0 - start) / 1000
+    first = -(-offset_s // every) * every  # primer múltiplo de `every` dentro del tramo
+    ticks = []
+    s = first
+    while s <= offset_s + shown_s + 0.1:
+        x = PAD + (s - offset_s) / shown_s * (WIDTH - 2 * PAD)
+        ticks.append({"x": round(x, 1), "label": _clock(s)})
+        s += every
 
-    return {"width": WIDTH, "height": HEIGHT, "points": points, "ticks": ticks}
+    return {
+        "width": WIDTH,
+        "height": HEIGHT,
+        "points": points,
+        "ticks": ticks,
+        "is_fragment": duration_s > MAX_FULL_S,
+        "from": _clock(offset_s),
+        "to": _clock(offset_s + shown_s),
+        "total": _clock(duration_s),
+    }

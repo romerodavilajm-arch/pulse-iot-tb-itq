@@ -135,16 +135,21 @@
     <section aria-labelledby="s-signal">
       <h2 id="s-signal">Tu señal de pulso</h2>
       <p class="muted small">Así ha visto el sensor la sangre pasando por tu dedo durante la medición.</p>
+      {% if signal.is_fragment %}
+        <p class="muted small">Se muestra un fragmento de 20 segundos (de {{ signal["from"] }} a {{ signal.to }}) de una
+          medición de {{ signal.total }}. La medición completa tiene cientos de latidos y en una sola línea no se
+          distinguirían; el análisis sí usa la medición entera.</p>
+      {% endif %}
       <svg class="chart" viewBox="0 0 {{ signal.width }} {{ signal.height + 22 }}" role="img"
            aria-label="Gráfica de la señal de pulso a lo largo del tiempo">
         <rect x="0" y="0" width="{{ signal.width }}" height="{{ signal.height }}" fill="#fafbfb" stroke="#dfe5e3"/>
         {% for tk in signal.ticks %}
           <line x1="{{ tk.x }}" y1="0" x2="{{ tk.x }}" y2="{{ signal.height }}" stroke="#eef1f0"/>
-          <text x="{{ tk.x }}" y="{{ signal.height + 16 }}" font-size="12" fill="#5d6b72" text-anchor="{{ 'start' if loop.first else 'middle' }}">{{ tk.label }}</text>
+          <text x="{{ tk.x }}" y="{{ signal.height + 16 }}" font-size="12" fill="#5d6b72" text-anchor="{{ 'start' if loop.first else ('end' if loop.last else 'middle') }}">{{ tk.label }}</text>
         {% endfor %}
         <polyline points="{{ signal.points }}" fill="none" stroke="#2c7a74" stroke-width="1.6" stroke-linejoin="round"/>
       </svg>
-      <div class="legend"><span>Eje horizontal: tiempo en segundos</span><span>Cada pico ≈ un latido</span></div>
+      <div class="legend"><span>Eje horizontal: tiempo desde el inicio de la medición</span><span>Cada pico ≈ un latido</span></div>
       {% if label == "low_quality" %}
         <p class="small"><b>En esta medición</b> la línea no muestra ondas regulares: es ruido, no latidos.
           Por eso no se ha podido calcular el resultado.</p>
@@ -161,6 +166,11 @@
     <section aria-labelledby="s-metrics">
       <h2 id="s-metrics">Indicadores</h2>
       <p class="muted small">Cada uno compara tu señal con un límite. Por debajo del límite es lo esperable en reposo.</p>
+      {% if metrics.windows is defined and metrics.windows > 1 %}
+        <p class="muted small">La medición se divide en {{ metrics.windows }} tramos de 30 segundos y cada indicador es el
+          valor típico (la mediana) de esos tramos. Así los cambios lentos a lo largo de los minutos, como la respiración
+          o la presión del dedo, no se confunden con el pulso.</p>
+      {% endif %}
       {% for key in ["ir_cv", "red_cv", "ir_diff"] if key in metrics %}
         {%- set val = metrics[key] -%}
         {%- set thr = thresholds[key] -%}
@@ -189,7 +199,7 @@
     <section aria-labelledby="s-data">
       <h2 id="s-data">Datos de la medición</h2>
       <dl>
-        {% if metrics.duration_s is defined %}<dt>Duración</dt><dd>{{ metrics.duration_s }} s</dd>{% endif %}
+        {% if metrics.duration_s is defined %}<dt>Duración</dt><dd>{% if metrics.duration_s >= 60 %}{{ (metrics.duration_s // 60) | int }} min {{ (metrics.duration_s % 60) | round | int }} s{% else %}{{ metrics.duration_s }} s{% endif %}</dd>{% endif %}
         {% if metrics.ir_mean is defined %}
           <dt>Intensidad de la señal</dt>
           <dd>{{ "{:,}".format(metrics.ir_mean).replace(",", ".") }}

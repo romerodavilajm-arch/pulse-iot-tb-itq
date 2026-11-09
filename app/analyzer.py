@@ -31,6 +31,13 @@ IR_DIFF_THRESHOLD = 0.005
 TOTAL_RULES = 3
 STRESS_MIN_RULES = 2
 
+# Las sesiones duran ~5 minutos. Calcular la variación sobre los 5 minutos
+# enteros mezcla el pulso con la deriva lenta de la señal (respiración,
+# presión del dedo), y un pulso tranquilo acaba marcado como estrés. Por eso
+# las métricas se calculan en tramos de 30 s (la escala con la que se
+# fijaron los umbrales) y se toma la mediana de los tramos.
+WINDOW_S = 30
+
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
@@ -38,6 +45,41 @@ def _mean(values: list[float]) -> float:
 
 def _variance(values: list[float], mean: float) -> float:
     return sum((v - mean) ** 2 for v in values) / len(values)
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _window_metrics(ir: list[float], red: list[float]) -> tuple[float, float, float]:
+    """ir_cv, red_cv e ir_diff de un tramo de la señal."""
+    ir_mean = _mean(ir)
+    red_mean = _mean(red)
+    ir_cv = math.sqrt(_variance(ir, ir_mean)) / ir_mean
+    red_cv = math.sqrt(_variance(red, red_mean)) / red_mean if red_mean else 0.0
+    ir_diff = _mean([abs(b - a) for a, b in zip(ir, ir[1:])]) / ir_mean
+    return ir_cv, red_cv, ir_diff
+
+
+def _windows(t: list[float], n: int) -> list[tuple[int, int]]:
+    """Índices [inicio, fin) de tramos consecutivos de WINDOW_S segundos.
+
+    Si la medición es corta (menos de 1,5 tramos) se usa entera, como antes.
+    """
+    span_ms = WINDOW_S * 1000
+    if t[-1] - t[0] < 1.5 * span_ms:
+        return [(0, n)]
+    bounds, start = [], 0
+    for i in range(1, n):
+        if t[i] - t[start] >= span_ms:
+            bounds.append((start, i))
+            start = i
+    # El trozo final se usa solo si dura al menos medio tramo.
+    if t[-1] - t[start] >= span_ms / 2:
+        bounds.append((start, n))
+    return [(a, b) for a, b in bounds if b - a >= MIN_SAMPLES] or [(0, n)]
 
 
 def _low_quality(start: float, metrics: dict | None = None) -> dict:
@@ -66,6 +108,7 @@ def analyze(samples: list[dict]) -> dict:
     if len(clean) < MIN_SAMPLES:
         return _low_quality(start)
 
+    clean.sort(key=lambda s: s["t"])
     ir = [float(s["ir"]) for s in clean]
     red = [float(s["red"]) for s in clean]
     t = [float(s["t"]) for s in clean]
@@ -82,10 +125,11 @@ def analyze(samples: list[dict]) -> dict:
     # movimiento, y un índice de calidad de señal (SQI) que pueda devolver
     # "low_quality" si la señal no es usable.
     # ------------------------------------------------------------------
-    ir_cv = math.sqrt(_variance(ir, ir_mean)) / ir_mean
-    red_mean = _mean(red)
-    red_cv = math.sqrt(_variance(red, red_mean)) / red_mean if red_mean else 0.0
-    ir_diff = _mean([abs(b - a) for a, b in zip(ir, ir[1:])]) / ir_mean
+    windows = _windows(t, len(clean))
+    per_window = [_window_metrics(ir[a:b], red[a:b]) for a, b in windows]
+    ir_cv = _median([w[0] for w in per_window])
+    red_cv = _median([w[1] for w in per_window])
+    ir_diff = _median([w[2] for w in per_window])
 
     duration_ms = max(t) - min(t)
 
@@ -101,12 +145,14 @@ def analyze(samples: list[dict]) -> dict:
     #   ir_cv       cuánto varía la señal IR respecto a su media (regla 1)
     #   red_cv      lo mismo para la luz roja (regla 2)
     #   ir_diff     cambio medio de una muestra a la siguiente (regla 3)
+    #   windows     en cuántos tramos de 30 s se dividió la medición
     metrics = {
         "duration_s": round(duration_ms / 1000, 1),
         "ir_mean": round(ir_mean),
         "ir_cv": round(ir_cv, 5),
         "red_cv": round(red_cv, 5),
         "ir_diff": round(ir_diff, 5),
+        "windows": len(windows),
     }
 
     # ------------------------------------------------------------------
