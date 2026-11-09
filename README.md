@@ -30,5 +30,5 @@ app/
   analyzer.py      analyze(samples) -> dict (placeholder, función pura)
   templates/       index.html, result.html, admin.html (CSS embebido)
 Dockerfile
-docker-compose.yml  un solo servicio: web
+compose.yaml        un solo servicio: web
 ```
