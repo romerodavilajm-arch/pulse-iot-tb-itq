@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PulsePPG · Admin</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #1d2733; padding: 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 900px; margin: 24px auto;
+            box-shadow: 0 2px 12px rgba(0,0,0,.08); overflow-x: auto; }
+    h1 { margin: 0 0 16px; font-size: 1.4rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e6eaee; font-size: .9rem; white-space: nowrap; }
+    th { color: #5b6673; font-weight: 500; }
+    button { padding: 4px 10px; border: 0; border-radius: 6px; background: #2f6fde; color: #fff; cursor: pointer; }
+    .error { padding: 10px; border-radius: 8px; background: #fdecec; color: #a32020; margin-bottom: 16px; }
+    a { color: #2f6fde; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Sesiones en ThingsBoard</h1>
+    {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+    {% if sessions %}
+      <table>
+        <tr><th>Publicada</th><th>PIN</th><th>Muestras</th><th>Inicio</th><th>Fin</th><th></th></tr>
+        {% for s in sessions %}
+          <tr>
+            <td>{{ s.published_at }}</td>
+            <td>{{ s.pin or "—" }}</td>
+            <td>{{ s.sample_count or "—" }}</td>
+            <td>{{ s.started_at or "—" }}</td>
+            <td>{{ s.finished_at or "—" }}</td>
+            <td>
+              <form method="post" action="/admin/analyze">
+                <input type="hidden" name="ts" value="{{ s.ts }}">
+                <button type="submit">Analizar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% elif not error %}
+      <p>No hay sesiones.</p>
+    {% endif %}
+    <p><a href="/admin">Recargar</a> · <a href="/">Inicio</a></p>
+  </main>
+</body>
+</html>

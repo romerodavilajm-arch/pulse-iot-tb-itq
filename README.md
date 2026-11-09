@@ -7,3 +7,24 @@ El proyecto une las dos disciplinas en un solo flujo: una **Raspberry Pi 5** con
 La parte **IoT** está en el borde: el sensor, la Pi, MQTT con QoS 1 y el Access Token del dispositivo. La parte **Big Data** está en la plataforma: almacenamiento de series temporales, consultas por rango de tiempo y por valor, y una capa analítica que procesa las muestras bajo demanda. La web no reinventa la infraestructura: la orquesta.
 
 El objetivo académico no es construir una plataforma desde cero, sino demostrar que se puede **integrar una plataforma IoT existente con una capa de análisis propia**, y que el flujo completo —captura, transporte, almacenamiento, consulta y análisis— es trazable y reproducible.
+
+## Cómo levantar la web
+
+```bash
+cp .env.example .env      # rellena TB_API_KEY y TB_DEVICE_ID (y ADMIN_USER/ADMIN_PASS si quieres /admin)
+docker compose up --build
+```
+
+Abre http://localhost:8000, teclea el PIN que muestra el LCD y verás el resultado. Si definiste `ADMIN_USER`/`ADMIN_PASS`, http://localhost:8000/admin lista las sesiones guardadas en ThingsBoard y permite analizar cualquiera.
+
+Estructura:
+
+```
+app/
+  main.py          rutas FastAPI (/, /lookup, /admin, /admin/analyze)
+  thingsboard.py   cliente httpx async de la API REST de ThingsBoard
+  analyzer.py      analyze(samples) -> dict (placeholder, función pura)
+  templates/       index.html, result.html, admin.html (CSS embebido)
+Dockerfile
+docker-compose.yml  un solo servicio: web
+```

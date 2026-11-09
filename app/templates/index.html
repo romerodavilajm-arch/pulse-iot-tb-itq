@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PulsePPG · Consulta por PIN</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #1d2733;
+           display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 32px; width: 100%; max-width: 380px;
+            box-shadow: 0 2px 12px rgba(0,0,0,.08); text-align: center; }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; }
+    p { margin: 0 0 24px; color: #5b6673; }
+    input { width: 100%; font-size: 2rem; letter-spacing: .4em; text-align: center; padding: 12px;
+            border: 2px solid #ccd3da; border-radius: 8px; }
+    input:focus { outline: none; border-color: #2f6fde; }
+    button { margin-top: 16px; width: 100%; padding: 12px; font-size: 1rem; border: 0; border-radius: 8px;
+             background: #2f6fde; color: #fff; cursor: pointer; }
+    button:hover { background: #2559b3; }
+    .error { margin-top: 16px; padding: 10px; border-radius: 8px; background: #fdecec; color: #a32020; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>PulsePPG</h1>
+    <p>Introduce el PIN de 6 dígitos que aparece en la pantalla.</p>
+    <form method="post" action="/lookup" autocomplete="off">
+      <input name="pin" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+             required autofocus title="6 dígitos" aria-label="PIN de 6 dígitos">
+      <button type="submit">Ver resultado</button>
+    </form>
+    {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+  </main>
+</body>
+</html>
