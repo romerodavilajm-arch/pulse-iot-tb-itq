@@ -61,6 +61,9 @@ def _build_result(session: dict) -> dict:
     """Parsea samples, ejecuta el análisis y arma el contexto de la plantilla."""
     samples = _parse_samples(session.get("samples"))
     result = analyze(samples)
+    beats = result.pop("beats", [])
+    if result["label"] == "low_quality":
+        beats = []  # en una señal no válida los "latidos" serían ruido
     return {
         "pin": thingsboard.normalize_pin(session.get("pin")),
         "n_samples": len(samples),
@@ -68,14 +71,10 @@ def _build_result(session: dict) -> dict:
         "started_at": _fmt_epoch_ms(session.get("started_at")),
         "finished_at": _fmt_epoch_ms(session.get("finished_at")),
         **result,
-        "signal": charts.ir_signal(samples),
+        "signal": charts.ir_signal(samples, beats),
         "total_rules": analyzer.TOTAL_RULES,
         "stress_min_rules": analyzer.STRESS_MIN_RULES,
-        "thresholds": {
-            "ir_cv": analyzer.IR_CV_THRESHOLD,
-            "red_cv": analyzer.RED_CV_THRESHOLD,
-            "ir_diff": analyzer.IR_DIFF_THRESHOLD,
-        },
+        "indicators": analyzer.INDICATORS,
         "min_ir_mean": analyzer.MIN_IR_MEAN,
     }
 

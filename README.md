@@ -27,7 +27,7 @@ Estructura:
 app/
   main.py          rutas FastAPI (/, /lookup, /admin, /admin/analyze)
   thingsboard.py   cliente httpx async de la API REST de ThingsBoard
-  analyzer.py      analyze(samples) -> dict (placeholder, función pura)
+  analyzer.py      analyze(samples) -> dict (latidos, pulso, RMSSD, SDNN; función pura)
   templates/       index.html, result.html, admin.html (CSS embebido)
 Dockerfile
 compose.yaml        un solo servicio: web
