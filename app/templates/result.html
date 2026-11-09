@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PulsePPG · Resultado</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #1d2733; padding: 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 560px; margin: 24px auto;
+            box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 16px; font-size: 1.4rem; }
+    h2 { font-size: 1.05rem; margin: 24px 0 8px; }
+    .label { display: inline-block; padding: 6px 14px; border-radius: 999px; font-weight: 600; margin-bottom: 16px; }
+    .stress { background: #fdecec; color: #a32020; }
+    .no_stress { background: #e7f6ec; color: #1d7a3e; }
+    .low_quality { background: #fff4e0; color: #8a5a00; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e6eaee; font-size: .95rem; }
+    th { color: #5b6673; font-weight: 500; width: 45%; }
+    td.num { font-variant-numeric: tabular-nums; }
+    .note { color: #5b6673; font-size: .9rem; }
+    a { color: #2f6fde; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Resultado del análisis</h1>
+    <span class="label {{ label }}">{{ label }}</span>
+
+    <table>
+      <tr><th>PIN</th><td>{{ pin }}</td></tr>
+      <tr><th>Muestras</th><td class="num">{{ n_samples }}</td></tr>
+      {% if started_at %}<tr><th>Inicio</th><td>{{ started_at }}</td></tr>{% endif %}
+      {% if finished_at %}<tr><th>Fin</th><td>{{ finished_at }}</td></tr>{% endif %}
+      <tr><th>Score</th><td class="num">{{ score }}</td></tr>
+      <tr><th>Reglas cumplidas</th><td class="num">{{ rules_met }}</td></tr>
+      <tr><th>Tiempo de análisis</th><td class="num">{{ elapsed_ms }} ms</td></tr>
+    </table>
+
+    {% if label != "low_quality" %}
+      <h2>Métricas</h2>
+      <table>
+        {% for name, value in metrics.items() %}
+          <tr><th>{{ name }}</th><td class="num">{{ value }}</td></tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="note">La señal no tiene calidad suficiente para calcular métricas.</p>
+    {% endif %}
+
+    <p><a href="{{ '/admin' if from_admin else '/' }}">&larr; Volver</a></p>
+  </main>
+</body>
+</html>
