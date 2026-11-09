@@ -73,20 +73,6 @@ def _group_by_ts(data: dict) -> list[dict]:
     return sorted(rows.values(), key=lambda r: r["ts"], reverse=True)
 
 
-async def get_latest_session() -> dict | None:
-    """Últimos valores de cada clave (sin startTs/endTs = latest)."""
-    data = await _get_timeseries({"keys": ",".join(SESSION_KEYS)})
-    rows = _group_by_ts(data)
-    if not rows:
-        return None
-    # Si por algún motivo las claves tienen ts distintos, tomamos el último
-    # valor de cada una (comportamiento "latest" de ThingsBoard).
-    latest: dict = {}
-    for row in reversed(rows):  # de más antiguo a más reciente
-        latest.update(row)
-    return latest
-
-
 async def list_sessions(limit: int = 50) -> list[dict]:
     """Histórico de sesiones (sin `samples`), más recientes primero."""
     params = {
@@ -99,13 +85,61 @@ async def list_sessions(limit: int = 50) -> list[dict]:
     return _group_by_ts(await _get_timeseries(params))
 
 
+def normalize_pin(value) -> str:
+    """Normaliza el PIN tal como lo devuelve ThingsBoard.
+
+    Si la Pi publicó el PIN como número (123456 en vez de "123456"),
+    ThingsBoard puede devolverlo como "123456", "123456.0" o sin los ceros
+    a la izquierda ("12345" para 012345). Lo dejamos siempre en 6 dígitos.
+    """
+    text = str(value if value is not None else "").strip().strip('"')
+    if text.endswith(".0"):
+        text = text[:-2]
+    if text.isdigit() and len(text) < 6:
+        text = text.zfill(6)
+    return text
+
+
+async def find_session_by_pin(pin: str, limit: int = 100) -> dict | None:
+    """Busca la sesión más reciente cuyo PIN coincide y la devuelve con `samples`.
+
+    Recorre las últimas `limit` sesiones (sin `samples`, para que sea ligero)
+    y solo descarga las muestras de la sesión que coincide.
+    """
+    for row in await list_sessions(limit):
+        if normalize_pin(row.get("pin")) == pin:
+            return await get_session_at(row["ts"])
+    return None
+
+
+# Margen para cuando la Pi publica las claves en mensajes separados y no
+# comparten exactamente el mismo ts.
+SESSION_WINDOW_MS = 60_000
+
+
 async def get_session_at(ts: int) -> dict | None:
-    """Sesión completa (con `samples`) publicada exactamente en `ts`."""
+    """Sesión completa (con `samples`) publicada en `ts`.
+
+    Pide una ventana de ±60 s alrededor de `ts` y, para cada clave, se queda
+    con el valor más cercano a `ts`. Si la Pi publica todo en un único
+    mensaje (lo normal), todas las claves tienen exactamente ese ts.
+    """
     params = {
         "keys": ",".join(SESSION_KEYS),
-        "startTs": ts,
-        "endTs": ts + 1,
-        "limit": 1,
+        "startTs": ts - SESSION_WINDOW_MS,
+        "endTs": ts + SESSION_WINDOW_MS + 1,
+        "limit": 10,
     }
-    rows = _group_by_ts(await _get_timeseries(params))
-    return rows[0] if rows else None
+    data = await _get_timeseries(params)
+    session: dict = {}
+    for key, points in data.items():
+        if not isinstance(points, list):
+            continue
+        valid = [p for p in points if isinstance(p, dict) and p.get("ts") is not None]
+        if valid:
+            closest = min(valid, key=lambda p: abs(p["ts"] - ts))
+            session[key] = closest.get("value")
+    if not session:
+        return None
+    session["ts"] = ts
+    return session

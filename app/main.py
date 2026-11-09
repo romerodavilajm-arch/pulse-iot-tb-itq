@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from app import thingsboard
 from app.analyzer import analyze
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("pulse")
 
 app = FastAPI(title="PulsePPG", docs_url=None, redoc_url=None, openapi_url=None)
@@ -48,6 +49,9 @@ def _parse_samples(raw) -> list[dict]:
     if not isinstance(raw, str):
         raise ValueError("samples ausente o con tipo inesperado")
     parsed = json.loads(raw)
+    if isinstance(parsed, str):
+        # Doble codificación (json.dumps aplicado dos veces en la Pi).
+        parsed = json.loads(parsed)
     if not isinstance(parsed, list):
         raise ValueError("samples no es una lista")
     return parsed
@@ -58,7 +62,7 @@ def _build_result(session: dict) -> dict:
     samples = _parse_samples(session.get("samples"))
     result = analyze(samples)
     return {
-        "pin": session.get("pin"),
+        "pin": thingsboard.normalize_pin(session.get("pin")),
         "n_samples": len(samples),
         "sample_count": session.get("sample_count"),
         "started_at": _fmt_epoch_ms(session.get("started_at")),
@@ -87,21 +91,27 @@ async def lookup(request: Request, pin: str = Form("")):
         return _index(request, MSG_INVALID)
 
     try:
-        session = await thingsboard.get_latest_session()
+        session = await thingsboard.find_session_by_pin(pin)
     except thingsboard.ThingsBoardError:
         log.exception("Fallo consultando ThingsBoard")
         return _index(request, MSG_UNAVAILABLE, 503)
 
-    stored_pin = str((session or {}).get("pin") or "")
-    # compare_digest: comparación en tiempo constante (detalle barato).
-    if not stored_pin or not hmac.compare_digest(stored_pin, pin):
+    if session is None:
+        # Solo en los logs del servidor: al usuario no se le distingue el caso.
+        log.warning("lookup: el PIN %s no aparece en las últimas sesiones de ThingsBoard", pin)
         return _index(request, MSG_INVALID)
 
     try:
         ctx = _build_result(session)
-    except (ValueError, TypeError):
-        # samples corrupto: para el usuario es lo mismo que "sin datos".
-        log.exception("samples no parseable")
+    except (ValueError, TypeError) as exc:
+        raw = session.get("samples")
+        log.warning(
+            "lookup: PIN %s encontrado (ts=%s) pero samples no se pudo usar: %s "
+            "(tipo=%s, longitud=%s, inicio=%r)",
+            pin, session.get("ts"), exc, type(raw).__name__,
+            len(raw) if isinstance(raw, (str, list)) else None,
+            raw[:80] if isinstance(raw, str) else None,
+        )
         return _index(request, MSG_INVALID)
 
     return templates.TemplateResponse(request, "result.html", ctx)
