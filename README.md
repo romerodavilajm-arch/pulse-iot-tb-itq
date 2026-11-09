@@ -1,3 +1,7 @@
+Aquí tienes la traducción al español del contenido del archivo:
+
+---
+
 # PulsePPG · IoT + Big Data (ITQ)
 
 Demo académico para la clase de **IoT y Big Data** del ITQ.
