@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
-from app import thingsboard
+from app import analyzer, charts, thingsboard
 from app.analyzer import analyze
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -68,6 +68,15 @@ def _build_result(session: dict) -> dict:
         "started_at": _fmt_epoch_ms(session.get("started_at")),
         "finished_at": _fmt_epoch_ms(session.get("finished_at")),
         **result,
+        "signal": charts.ir_signal(samples),
+        "total_rules": analyzer.TOTAL_RULES,
+        "stress_min_rules": analyzer.STRESS_MIN_RULES,
+        "thresholds": {
+            "ir_cv": analyzer.IR_CV_THRESHOLD,
+            "red_cv": analyzer.RED_CV_THRESHOLD,
+            "ir_diff": analyzer.IR_DIFF_THRESHOLD,
+        },
+        "min_ir_mean": analyzer.MIN_IR_MEAN,
     }
 
 

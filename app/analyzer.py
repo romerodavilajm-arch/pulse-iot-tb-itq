@@ -82,18 +82,12 @@ def analyze(samples: list[dict]) -> dict:
     # movimiento, y un índice de calidad de señal (SQI) que pueda devolver
     # "low_quality" si la señal no es usable.
     # ------------------------------------------------------------------
-    ir_var = _variance(ir, ir_mean)
-    ir_std = math.sqrt(ir_var)
+    ir_cv = math.sqrt(_variance(ir, ir_mean)) / ir_mean
     red_mean = _mean(red)
-    red_var = _variance(red, red_mean)
-    red_std = math.sqrt(red_var)
-
-    ir_cv = ir_std / ir_mean if ir_mean else 0.0
-    red_cv = red_std / red_mean if red_mean else 0.0
+    red_cv = math.sqrt(_variance(red, red_mean)) / red_mean if red_mean else 0.0
     ir_diff = _mean([abs(b - a) for a, b in zip(ir, ir[1:])]) / ir_mean
 
     duration_ms = max(t) - min(t)
-    fs_hz = (len(t) - 1) / (duration_ms / 1000) if duration_ms > 0 else 0.0
 
     # ------------------------------------------------------------------
     # REEMPLAZAR (2): extracción de características HRV.
@@ -101,18 +95,18 @@ def analyze(samples: list[dict]) -> dict:
     # (IBI/NN), y métricas como HR media, SDNN, RMSSD, pNN50 y LF/HF.
     # Esas métricas sustituirían a las de abajo en el dict `metrics`.
     # ------------------------------------------------------------------
+    # Solo métricas que se pueden explicar en una frase a un no médico:
+    #   duration_s  cuánto duró la medición
+    #   ir_mean     intensidad media de la señal (contacto del dedo)
+    #   ir_cv       cuánto varía la señal IR respecto a su media (regla 1)
+    #   red_cv      lo mismo para la luz roja (regla 2)
+    #   ir_diff     cambio medio de una muestra a la siguiente (regla 3)
     metrics = {
-        "n_samples": len(clean),
-        "duration_s": round(duration_ms / 1000, 2),
-        "fs_hz": round(fs_hz, 2),
-        "ir_mean": round(ir_mean, 2),
-        "ir_var": round(ir_var, 2),
-        "ir_std": round(ir_std, 2),
+        "duration_s": round(duration_ms / 1000, 1),
+        "ir_mean": round(ir_mean),
         "ir_cv": round(ir_cv, 5),
-        "red_mean": round(red_mean, 2),
-        "red_var": round(red_var, 2),
         "red_cv": round(red_cv, 5),
-        "ir_mean_abs_diff_norm": round(ir_diff, 5),
+        "ir_diff": round(ir_diff, 5),
     }
 
     # ------------------------------------------------------------------
