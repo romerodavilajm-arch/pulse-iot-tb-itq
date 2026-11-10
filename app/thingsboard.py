@@ -8,6 +8,8 @@ La configuración se lee de variables de entorno:
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import time
 
@@ -17,9 +19,12 @@ import httpx
 # damos margen para que ThingsBoard Cloud la sirva aunque vaya lento.
 TIMEOUT_S = 30.0
 
-SESSION_KEYS = ["pin", "samples", "sample_count", "started_at", "finished_at"]
+SESSION_KEYS = ["pin", "samples", "sample_count", "started_at", "finished_at", "parts"]
 # Para listar sesiones en /admin no pedimos `samples` (es el campo pesado).
 LIST_KEYS = ["pin", "sample_count", "started_at", "finished_at"]
+
+
+log = logging.getLogger(__name__)
 
 
 class ThingsBoardError(Exception):
@@ -144,4 +149,45 @@ async def get_session_at(ts: int) -> dict | None:
     if not session:
         return None
     session["ts"] = ts
+    if not session.get("samples") and session.get("parts"):
+        session["samples"] = await _get_parts(ts, session["parts"])
     return session
+
+
+async def _get_parts(ts: int, parts) -> list[dict] | None:
+    """Une las muestras de una sesión enviada por MQTT en varias partes.
+
+    Una sesión de 5 minutos no cabe en un solo mensaje MQTT de ThingsBoard,
+    así que la Pi la manda troceada: la parte i va en `samples_part` con
+    ts = ts_de_la_sesión + i (i = 1..parts) y la cabecera (pin, parts, ...)
+    va al final con el ts de la sesión. Devuelve None si falta alguna parte.
+    """
+    try:
+        parts = int(float(parts))
+    except (TypeError, ValueError):
+        return None
+    data = await _get_timeseries({
+        "keys": "samples_part",
+        "startTs": ts + 1,
+        "endTs": ts + parts + 1,
+        "limit": parts,
+        "orderBy": "ASC",
+    })
+    points = sorted(
+        (p for p in data.get("samples_part", []) if isinstance(p, dict) and p.get("ts") is not None),
+        key=lambda p: p["ts"],
+    )
+    if len(points) != parts:
+        log.warning("sesión ts=%s incompleta: %d de %d partes", ts, len(points), parts)
+        return None
+    samples: list[dict] = []
+    for point in points:
+        try:
+            chunk = json.loads(point.get("value") or "")
+        except ValueError:
+            log.warning("sesión ts=%s: parte ts=%s no es JSON", ts, point["ts"])
+            return None
+        if not isinstance(chunk, list):
+            return None
+        samples.extend(chunk)
+    return samples
