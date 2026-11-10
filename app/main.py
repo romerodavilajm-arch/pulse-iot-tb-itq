@@ -154,9 +154,13 @@ async def admin(request: Request):
     error = None
     sessions: list[dict] = []
     try:
-        for row in await thingsboard.list_sessions():
+        rows = await thingsboard.list_sessions()
+        names = await thingsboard.device_names()
+        for row in rows:
             sessions.append({
                 "ts": row["ts"],
+                "device_id": row["device_id"],
+                "device": names.get(row["device_id"], row["device_id"][:8]),
                 "pin": row.get("pin"),
                 "sample_count": row.get("sample_count"),
                 "started_at": _fmt_epoch_ms(row.get("started_at")),
@@ -170,9 +174,14 @@ async def admin(request: Request):
 
 
 @app.post("/admin/analyze", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
-async def admin_analyze(request: Request, ts: int = Form(...)):
+async def admin_analyze(request: Request, ts: int = Form(...), device_id: str = Form("")):
+    # Solo se aceptan dispositivos configurados en TB_DEVICE_ID.
+    if device_id not in thingsboard.device_ids():
+        return templates.TemplateResponse(
+            request, "admin.html", {"sessions": [], "error": MSG_INVALID}, status_code=400
+        )
     try:
-        session = await thingsboard.get_session_at(ts)
+        session = await thingsboard.get_session_at(device_id, ts)
     except thingsboard.ThingsBoardError:
         log.exception("Fallo consultando ThingsBoard")
         return templates.TemplateResponse(

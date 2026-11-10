@@ -27,7 +27,7 @@ app/
   templates/       index.html, result.html, admin.html (CSS embebido)
 raspberrypi/       código de la Pi: captura, PIN, LCD y publicación MQTT (ver raspberrypi/README.md)
 Dockerfile
-compose.yaml        un solo servicio: web
+compose.yaml        servicio web (+ pi-simulada opcional, perfil "simulador")
 ```
 
 ## Cómo poner en marcha la Raspberry Pi
@@ -35,3 +35,18 @@ compose.yaml        un solo servicio: web
 Ver [raspberrypi/README.md](raspberrypi/README.md) (instalación y sesión) y
 [raspberrypi/CONEXIONES.md](raspberrypi/CONEXIONES.md) (cableado del sensor y del LCD).
 Con `python pulse.py --simular` se puede probar ThingsBoard + web sin hardware.
+
+## Varios dispositivos (Pi 5 + Pi simulada)
+
+La web lee todos los dispositivos que pongas en `TB_DEVICE_ID`, separados por comas.
+El PIN se busca en todos y `/admin` muestra de qué dispositivo es cada sesión.
+
+1. En ThingsBoard, crea un segundo dispositivo (p. ej. `pi-simulada`).
+2. En `.env` de la web: `TB_DEVICE_ID=<id de test-pi>,<id de pi-simulada>` y reinicia la web.
+3. Crea `raspberrypi/.env.simulada` con `TB_HOST` y `TB_DEVICE_TOKEN=<token de pi-simulada>`
+   (no se sube al repo) y lanza la Pi simulada en un contenedor:
+
+```bash
+docker compose run --rm pi-simulada                    # sin estrés
+docker compose run --rm pi-simulada --simular estres   # o --simular mala_calidad
+```

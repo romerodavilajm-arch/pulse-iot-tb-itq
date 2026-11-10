@@ -3,11 +3,13 @@
 La configuración se lee de variables de entorno:
     TB_URL        p. ej. https://thingsboard.cloud
     TB_API_KEY    API Key, se envía como "X-Authorization: ApiKey <key>"
-    TB_DEVICE_ID  UUID del dispositivo test-pi
+    TB_DEVICE_ID  UUID del dispositivo, o varios separados por comas
+                  (p. ej. "id-test-pi,id-pi-simulada")
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -31,32 +33,53 @@ class ThingsBoardError(Exception):
     """Cualquier fallo al hablar con ThingsBoard (red, timeout, HTTP, JSON)."""
 
 
-def _config() -> tuple[str, str, str]:
+def _config() -> tuple[str, str]:
     url = os.environ.get("TB_URL", "https://thingsboard.cloud").rstrip("/")
     api_key = os.environ.get("TB_API_KEY", "")
-    device_id = os.environ.get("TB_DEVICE_ID", "")
-    if not api_key or not device_id:
+    if not api_key or not device_ids():
         raise ThingsBoardError("TB_API_KEY o TB_DEVICE_ID no configurados")
-    return url, api_key, device_id
+    return url, api_key
 
 
-async def _get_timeseries(params: dict) -> dict:
+def device_ids() -> list[str]:
+    """IDs de TB_DEVICE_ID (uno o varios separados por comas), sin repetir."""
+    raw = os.environ.get("TB_DEVICE_ID", "")
+    return list(dict.fromkeys(d.strip() for d in raw.split(",") if d.strip()))
+
+
+async def _get(path: str, params: dict | None = None):
+    url, api_key = _config()
+    headers = {"X-Authorization": f"ApiKey {api_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
+            resp = await client.get(f"{url}{path}", params=params, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise ThingsBoardError(str(exc)) from exc
+
+
+async def device_names() -> dict[str, str]:
+    """{device_id: nombre en ThingsBoard}. Si no se puede leer, el ID corto."""
+    async def one(device_id: str) -> str:
+        try:
+            data = await _get(f"/api/device/{device_id}")
+            return str(data.get("name") or device_id[:8])
+        except (ThingsBoardError, AttributeError):
+            return device_id[:8]
+
+    ids = device_ids()
+    return dict(zip(ids, await asyncio.gather(*(one(d) for d in ids))))
+
+
+async def _get_timeseries(device_id: str, params: dict) -> dict:
     """Llama a /values/timeseries y devuelve el JSON crudo.
 
     Formato esperado de ThingsBoard:
         {"pin": [{"ts": 1731000000000, "value": "123456"}, ...], ...}
     Las claves sin datos simplemente no aparecen.
     """
-    url, api_key, device_id = _config()
-    endpoint = f"{url}/api/plugins/telemetry/DEVICE/{device_id}/values/timeseries"
-    headers = {"X-Authorization": f"ApiKey {api_key}"}
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-            resp = await client.get(endpoint, params=params, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise ThingsBoardError(str(exc)) from exc
+    data = await _get(f"/api/plugins/telemetry/DEVICE/{device_id}/values/timeseries", params)
     if not isinstance(data, dict):
         raise ThingsBoardError("respuesta inesperada de ThingsBoard")
     return data
@@ -81,7 +104,8 @@ def _group_by_ts(data: dict) -> list[dict]:
 
 
 async def list_sessions(limit: int = 50) -> list[dict]:
-    """Histórico de sesiones (sin `samples`), más recientes primero."""
+    """Histórico de sesiones (sin `samples`) de todos los dispositivos,
+    más recientes primero. Cada fila lleva `device_id`."""
     params = {
         "keys": ",".join(LIST_KEYS),
         "startTs": 0,
@@ -89,7 +113,23 @@ async def list_sessions(limit: int = 50) -> list[dict]:
         "limit": limit,
         "orderBy": "DESC",
     }
-    return _group_by_ts(await _get_timeseries(params))
+    _config()  # falla pronto si falta configuración
+    ids = device_ids()
+    results = await asyncio.gather(*(_get_timeseries(d, params) for d in ids),
+                                   return_exceptions=True)
+    # Si un dispositivo falla (p. ej. ID mal copiado) seguimos con los demás.
+    if all(isinstance(r, Exception) for r in results):
+        raise results[0] if isinstance(results[0], ThingsBoardError) else ThingsBoardError(str(results[0]))
+    rows = []
+    for device_id, data in zip(ids, results):
+        if isinstance(data, Exception):
+            log.warning("no se pudo leer el dispositivo %s: %s", device_id, data)
+            continue
+        for row in _group_by_ts(data):
+            row["device_id"] = device_id
+            rows.append(row)
+    rows.sort(key=lambda r: r["ts"], reverse=True)
+    return rows
 
 
 def normalize_pin(value) -> str:
@@ -110,12 +150,12 @@ def normalize_pin(value) -> str:
 async def find_session_by_pin(pin: str, limit: int = 100) -> dict | None:
     """Busca la sesión más reciente cuyo PIN coincide y la devuelve con `samples`.
 
-    Recorre las últimas `limit` sesiones (sin `samples`, para que sea ligero)
-    y solo descarga las muestras de la sesión que coincide.
+    Recorre las últimas `limit` sesiones de cada dispositivo (sin `samples`,
+    para que sea ligero) y solo descarga las muestras de la que coincide.
     """
     for row in await list_sessions(limit):
         if normalize_pin(row.get("pin")) == pin:
-            return await get_session_at(row["ts"])
+            return await get_session_at(row["device_id"], row["ts"])
     return None
 
 
@@ -124,8 +164,8 @@ async def find_session_by_pin(pin: str, limit: int = 100) -> dict | None:
 SESSION_WINDOW_MS = 60_000
 
 
-async def get_session_at(ts: int) -> dict | None:
-    """Sesión completa (con `samples`) publicada en `ts`.
+async def get_session_at(device_id: str, ts: int) -> dict | None:
+    """Sesión completa (con `samples`) publicada en `ts` por `device_id`.
 
     Pide una ventana de ±60 s alrededor de `ts` y, para cada clave, se queda
     con el valor más cercano a `ts`. Si la Pi publica todo en un único
@@ -137,7 +177,7 @@ async def get_session_at(ts: int) -> dict | None:
         "endTs": ts + SESSION_WINDOW_MS + 1,
         "limit": 10,
     }
-    data = await _get_timeseries(params)
+    data = await _get_timeseries(device_id, params)
     session: dict = {}
     for key, points in data.items():
         if not isinstance(points, list):
@@ -149,12 +189,13 @@ async def get_session_at(ts: int) -> dict | None:
     if not session:
         return None
     session["ts"] = ts
+    session["device_id"] = device_id
     if not session.get("samples") and session.get("parts"):
-        session["samples"] = await _get_parts(ts, session["parts"])
+        session["samples"] = await _get_parts(device_id, ts, session["parts"])
     return session
 
 
-async def _get_parts(ts: int, parts) -> list[dict] | None:
+async def _get_parts(device_id: str, ts: int, parts) -> list[dict] | None:
     """Une las muestras de una sesión enviada por MQTT en varias partes.
 
     Una sesión de 5 minutos no cabe en un solo mensaje MQTT de ThingsBoard,
@@ -166,7 +207,7 @@ async def _get_parts(ts: int, parts) -> list[dict] | None:
         parts = int(float(parts))
     except (TypeError, ValueError):
         return None
-    data = await _get_timeseries({
+    data = await _get_timeseries(device_id, {
         "keys": "samples_part",
         "startTs": ts + 1,
         "endTs": ts + parts + 1,

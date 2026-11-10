@@ -6,3 +6,21 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+
+  # Pi simulada (opcional): publica una sesión sintética con el token de
+  # raspberrypi/.env.simulada y termina. No arranca con `docker compose up`.
+  #   docker compose run --rm pi-simulada                     # sin estrés
+  #   docker compose run --rm pi-simulada --simular estres    # o mala_calidad
+  pi-simulada:
+    image: python:3.11-slim
+    profiles: ["simulador"]
+    working_dir: /pi
+    volumes:
+      - ./raspberrypi:/pi
+    env_file:
+      - path: raspberrypi/.env.simulada
+        required: false
+    environment:
+      LCD_ADDRESS: "none"
+    entrypoint: ["sh", "-c", "pip install -q --root-user-action=ignore paho-mqtt python-dotenv && exec python pulse.py \"$$@\"", "--"]
+    command: ["--simular"]

@@ -24,10 +24,11 @@
     {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
     {% if sessions %}
       <table>
-        <tr><th>Publicada</th><th>PIN</th><th>Muestras</th><th>Inicio</th><th>Fin</th><th></th></tr>
+        <tr><th>Publicada</th><th>Dispositivo</th><th>PIN</th><th>Muestras</th><th>Inicio</th><th>Fin</th><th></th></tr>
         {% for s in sessions %}
           <tr>
             <td>{{ s.published_at }}</td>
+            <td>{{ s.device }}</td>
             <td>{{ s.pin or "—" }}</td>
             <td>{{ s.sample_count or "—" }}</td>
             <td>{{ s.started_at or "—" }}</td>
@@ -35,6 +36,7 @@
             <td>
               <form method="post" action="/admin/analyze">
                 <input type="hidden" name="ts" value="{{ s.ts }}">
+                <input type="hidden" name="device_id" value="{{ s.device_id }}">
                 <button type="submit">Analizar</button>
               </form>
             </td>

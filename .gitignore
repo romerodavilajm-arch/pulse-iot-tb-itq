@@ -221,3 +221,7 @@ __marimo__/
 
 # Sesiones capturadas en la Raspberry Pi
 raspberrypi/sesiones/
+
+# Otros .env (p. ej. raspberrypi/.env.simulada) tampoco se suben
+.env.*
+!.env.example
