@@ -1,0 +1,4 @@
+paho-mqtt>=2.0,<3
+python-dotenv>=1.0
+smbus2>=0.4
+RPLCD>=1.3

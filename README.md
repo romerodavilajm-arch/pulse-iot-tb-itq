@@ -1,7 +1,3 @@
-Aquí tienes la traducción al español del contenido del archivo:
-
----
-
 # PulsePPG · IoT + Big Data (ITQ)
 
 Demo académico para la clase de **IoT y Big Data** del ITQ.
@@ -29,6 +25,13 @@ app/
   thingsboard.py   cliente httpx async de la API REST de ThingsBoard
   analyzer.py      analyze(samples) -> dict (latidos, pulso, RMSSD, SDNN; función pura)
   templates/       index.html, result.html, admin.html (CSS embebido)
+raspberrypi/       código de la Pi: captura, PIN, LCD y publicación MQTT (ver raspberrypi/README.md)
 Dockerfile
 compose.yaml        un solo servicio: web
 ```
+
+## Cómo poner en marcha la Raspberry Pi
+
+Ver [raspberrypi/README.md](raspberrypi/README.md) (instalación y sesión) y
+[raspberrypi/CONEXIONES.md](raspberrypi/CONEXIONES.md) (cableado del sensor y del LCD).
+Con `python pulse.py --simular` se puede probar ThingsBoard + web sin hardware.
