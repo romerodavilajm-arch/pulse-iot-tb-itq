@@ -55,6 +55,9 @@ Otras opciones útiles:
 |---|---|
 | `python pulse.py --segundos 30` | sesión corta para probar el montaje |
 | `python pulse.py --simular` | sin sensor: genera una señal sintética de 5 min y la publica. Sirve para probar ThingsBoard + web antes de cablear nada |
+| `python pulse.py --simular estres` | simulación con pulso rápido y latidos muy regulares: la web muestra **estrés** |
+| `python pulse.py --simular sin_estres` | igual que `--simular`: pulso tranquilo, la web muestra **sin estrés** |
+| `python pulse.py --simular mala_calidad` | dedo mal apoyado (IR bajo y ruido): la web muestra **lectura no válida** |
 | `python pulse.py --sin-enviar` | captura y guarda en `sesiones/`, sin publicar |
 | `python pulse.py --reenviar sesiones/123456.json` | vuelve a publicar una sesión guardada (p. ej. si falló la red) |
 
