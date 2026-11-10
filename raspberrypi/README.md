@@ -60,52 +60,38 @@ Otras opciones útiles:
 
 ## Qué se publica
 
-Un único mensaje en `v1/devices/me/telemetry`, con un `ts` común para que la web
-encuentre todas las claves de la sesión juntas:
+Una sesión de 5 minutos a 50 Hz son 15 000 muestras, unos **625 KB**. ThingsBoard
+Cloud **no acepta un mensaje MQTT de ese tamaño** (comprobado: corta la conexión; en
+una instalación propia el límite es `NETTY_MAX_PAYLOAD_SIZE`, 64 KB por defecto). Por
+eso la Pi trocea la sesión y la manda en **16 mensajes MQTT con QoS 1**, esperando la
+confirmación (PUBACK) de cada uno antes de mandar el siguiente:
 
-```json
-{
-  "ts": 1731200000000,
-  "values": {
-    "pin": "012345",
-    "samples": "[{\"t\":0,\"ir\":110250,\"red\":90310},{\"t\":20,...}]",
-    "sample_count": 15000,
-    "started_at": 1731199700000,
-    "finished_at": 1731200000000
-  }
-}
-```
+1. **15 partes** de 1000 muestras (~42 KB cada una), en la clave `samples_part`, con
+   `ts` = ts de la sesión + 1, + 2, ... + 15:
+   ```json
+   {"ts": 1731200000001, "values": {"samples_part": "[{\"t\":0,\"ir\":110250,\"red\":90310},...]"}}
+   ```
+2. **La cabecera**, al final, con el `ts` de la sesión (= `finished_at`):
+   ```json
+   {"ts": 1731200000000, "values": {"pin": "012345", "sample_count": 15000,
+     "started_at": 1731199700000, "finished_at": 1731200000000, "parts": 15}}
+   ```
+
+La cabecera va la última a propósito: si falla alguna parte no se publica, así que la
+web nunca encuentra un PIN con la sesión a medias. La web busca el PIN en las
+cabeceras, pide las `parts` partes siguientes y las une en orden antes de analizar.
 
 - `pin` va como **texto** para no perder los ceros a la izquierda.
-- `samples` es un **string JSON**; `t` son milisegundos desde el inicio (0, 20, 40...),
-  `ir` y `red` son las lecturas crudas de 18 bits.
-- `ts` = `finished_at`.
+- `t` son milisegundos desde el inicio (0, 20, 40...); `ir` y `red` son las lecturas
+  crudas de 18 bits.
 
-## Tamaño del mensaje y el límite de ThingsBoard
+**Plan B (HTTP):** si ThingsBoard no confirma algún mensaje MQTT, `pulse.py` reintenta
+una vez por la API HTTP de dispositivos (`POST /api/v1/<token>/telemetry`) con la sesión
+entera en un solo mensaje (`samples` completo, sin `parts`). La web entiende los dos
+formatos. Se desactiva con `HTTP_FALLBACK=0`. La consola siempre dice por qué vía salió.
 
-5 minutos a 50 Hz son 15 000 muestras: el mensaje pesa unos **625 KB** aun con JSON
-compacto y `t` relativo (lo mínimo que acepta la web sin cambiarla).
-
-ThingsBoard tiene un límite de tamaño para los mensajes MQTT. En una instalación
-propia es `NETTY_MAX_PAYLOAD_SIZE`, que por defecto vale **64 KB**; en ThingsBoard
-Cloud no está publicado. Un mensaje de 5 minutos lo supera de sobra, y lo que hace
-ThingsBoard entonces es cerrar la conexión sin confirmar el mensaje.
-
-Lo que hace `pulse.py`:
-
-1. Publica por **MQTT con QoS 1** y espera el PUBACK (confirmación de ThingsBoard).
-2. Si ThingsBoard no lo confirma, reintenta **una vez** por la **API HTTP de
-   dispositivos** (`POST /api/v1/<token>/telemetry`) con exactamente el mismo JSON y
-   el mismo `ts`. Para la web es indistinguible. Se puede desactivar con `HTTP_FALLBACK=0`.
-   (Las versiones recientes de ThingsBoard admiten mensajes HTTP mucho más grandes que
-   por MQTT, pero en tu cuenta no está comprobado: la primera sesión real lo dirá.)
-3. Siempre guarda una copia en `sesiones/<PIN>.json` para poder reenviarla.
-
-La consola dice por qué vía salió (`Sesión publicada por MQTT` o `por HTTP`). Una
-sesión de 30 s (~62 KB) sí cabe en 64 KB, así que `--segundos 30` siempre sale por MQTT.
-
-Si en tu servidor propio quieres que todo vaya por MQTT, sube el límite:
-`NETTY_MAX_PAYLOAD_SIZE=1048576` (1 MB) en la configuración de ThingsBoard.
+Cada sesión se guarda además en `sesiones/<PIN>.json` para poder reenviarla con
+`--reenviar`.
 
 ## Problemas frecuentes
 

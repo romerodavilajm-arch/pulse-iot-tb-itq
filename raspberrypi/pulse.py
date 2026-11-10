@@ -4,9 +4,10 @@ Flujo de una sesión (una ejecución = una sesión):
   1. Genera un PIN aleatorio de 6 dígitos y lo muestra en el LCD.
   2. Espera a que la persona apoye el dedo en el MAX30102.
   3. Captura 5 minutos de señal (rojo + IR) a 50 muestras/s.
-  4. Publica TODO en un único mensaje MQTT (QoS 1) al dispositivo test-pi:
-        pin, samples, sample_count, started_at, finished_at
-     con un `ts` común, que es lo que espera la web para encontrar la sesión.
+  4. Publica la sesión por MQTT (QoS 1) al dispositivo test-pi, troceada en
+     mensajes de ~44 KB porque ThingsBoard no acepta mensajes MQTT grandes:
+     primero las partes (`samples_part`) y al final la cabecera con pin,
+     sample_count, started_at, finished_at y parts. La web las vuelve a unir.
   5. Deja el PIN en el LCD para que la persona lo teclee en la web.
 
 Uso:
@@ -171,8 +172,40 @@ def build_message(pin: str, samples: list[dict], started_at: int, finished_at: i
     return json.dumps(message, separators=compact).encode()
 
 
-def send_mqtt(host: str, port: int, token: str, payload: bytes, timeout: float = 60) -> bool:
-    """Publica con QoS 1 y espera el PUBACK de ThingsBoard."""
+# Muestras por parte. Una muestra ocupa como mucho ~44 bytes dentro del
+# mensaje, así que 1000 muestras son ~44 KB: por debajo de los 64 KB que
+# ThingsBoard acepta por defecto en un mensaje MQTT.
+PART_SAMPLES = 1000
+
+
+def split_message(payload: bytes) -> list[bytes]:
+    """Trocea la sesión en mensajes MQTT pequeños.
+
+    - Parte i (i = 1..N): ts = ts_sesión + i, clave `samples_part` con
+      1000 muestras (string JSON).
+    - Cabecera, al final: ts = ts_sesión, claves pin, sample_count,
+      started_at, finished_at y `parts` = N.
+    La cabecera va la última para que la web no encuentre el PIN hasta que
+    ThingsBoard haya confirmado todas las partes.
+    """
+    compact = (",", ":")
+    message = json.loads(payload)
+    ts, values = message["ts"], message["values"]
+    samples = json.loads(values["samples"])
+    chunks = [samples[i:i + PART_SAMPLES] for i in range(0, len(samples), PART_SAMPLES)]
+    out = [
+        json.dumps({"ts": ts + i, "values": {"samples_part": json.dumps(chunk, separators=compact)}},
+                   separators=compact).encode()
+        for i, chunk in enumerate(chunks, start=1)
+    ]
+    header = {k: v for k, v in values.items() if k != "samples"}
+    header["parts"] = len(chunks)
+    out.append(json.dumps({"ts": ts, "values": header}, separators=compact).encode())
+    return out
+
+
+def send_mqtt(host: str, port: int, token: str, messages: list[bytes], timeout: float = 30) -> bool:
+    """Publica los mensajes en orden con QoS 1, esperando el PUBACK de cada uno."""
     import paho.mqtt.client as mqtt
 
     connected = threading.Event()
@@ -202,24 +235,28 @@ def send_mqtt(host: str, port: int, token: str, payload: bytes, timeout: float =
             print(f"MQTT: conexión rechazada ({refused[0] if refused else 'sin respuesta'}); "
                   "revisa TB_HOST y TB_DEVICE_TOKEN")
             return False
-        info = client.publish(TOPIC, payload, qos=1)
-        # Esperamos el PUBACK, pero si ThingsBoard corta la conexión no tiene
-        # sentido seguir: paho reintentaría el mismo mensaje una y otra vez.
-        deadline = time.monotonic() + timeout
-        while not info.is_published() and not lost.is_set() and time.monotonic() < deadline:
-            time.sleep(0.1)
-        if info.is_published():
-            return True
-        print("MQTT: ThingsBoard no confirmó el mensaje (PUBACK). Lo más probable es que "
-              "supere su tamaño máximo de mensaje MQTT y haya cerrado la conexión.")
-        return False
+        for n, payload in enumerate(messages, start=1):
+            info = client.publish(TOPIC, payload, qos=1)
+            # Esperamos el PUBACK, pero si ThingsBoard corta la conexión no
+            # tiene sentido seguir: paho reintentaría el mensaje una y otra vez.
+            deadline = time.monotonic() + timeout
+            while not info.is_published() and not lost.is_set() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if not info.is_published():
+                print(f"MQTT: ThingsBoard no confirmó el mensaje {n}/{len(messages)} "
+                      f"({len(payload) / 1024:.0f} KB); cerró la conexión o no respondió.")
+                return False
+            print(f"MQTT: mensaje {n}/{len(messages)} confirmado", end="\r")
+        print()
+        return True
     finally:
         client.disconnect()
         client.loop_stop()
 
 
 def send_http(base_url: str, token: str, payload: bytes) -> bool:
-    """Plan B: la API HTTP de dispositivos de ThingsBoard, mismo JSON y mismo ts."""
+    """Plan B: la API HTTP de dispositivos de ThingsBoard, la sesión entera en
+    un solo mensaje (`samples` completo), que la web también entiende."""
     url = f"{base_url.rstrip('/')}/api/v1/{token}/telemetry"
     req = urllib.request.Request(url, data=payload, method="POST",
                                  headers={"Content-Type": "application/json"})
@@ -238,8 +275,10 @@ def publish(payload: bytes) -> str | None:
     token = os.environ.get("TB_DEVICE_TOKEN", "")
     if not token or token.startswith("pega-aqui"):
         sys.exit("Falta TB_DEVICE_TOKEN en raspberrypi/.env")
-    print(f"Mensaje: {len(payload) / 1024:.0f} KB")
-    if send_mqtt(host, port, token, payload):
+    messages = split_message(payload)
+    print(f"Sesión: {len(payload) / 1024:.0f} KB en {len(messages)} mensajes MQTT "
+          f"(el mayor de {max(map(len, messages)) / 1024:.0f} KB)")
+    if send_mqtt(host, port, token, messages):
         return "MQTT"
     if os.environ.get("HTTP_FALLBACK", "1") == "1":
         print("Reintentando por HTTP...")
