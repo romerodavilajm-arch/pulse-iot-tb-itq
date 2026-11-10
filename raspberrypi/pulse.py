@@ -14,6 +14,9 @@ Uso:
     python pulse.py                  # sesión real de 5 minutos
     python pulse.py --segundos 60    # sesión corta para probar
     python pulse.py --simular        # sin sensor: señal sintética (prueba ThingsBoard + web)
+    python pulse.py --simular estres        # simulación que da "estrés"
+    python pulse.py --simular sin_estres    # simulación que da "sin estrés" (= --simular)
+    python pulse.py --simular mala_calidad  # simulación que da "lectura no válida"
     python pulse.py --sin-enviar     # captura y guarda en sesiones/, no publica
     python pulse.py --reenviar sesiones/123456.json   # vuelve a publicar una sesión guardada
 
@@ -130,14 +133,29 @@ def capture(sensor, display: Display, pin: str, seconds: int) -> tuple[list[dict
     return samples, started_at, finished_at
 
 
-def simulate(seconds: int) -> tuple[list[dict], int, int]:
-    """Señal PPG sintética (~72 lpm con algo de variabilidad), sin esperar."""
+# Escenarios de --simular: intervalo medio entre latidos (ms) y su desviación.
+#   sin_estres:   ~72 lpm con buena variabilidad -> 0 de 3 reglas
+#   estres:       ~100 lpm y latidos muy regulares -> 3 de 3 reglas
+#   mala_calidad: dedo mal apoyado (IR bajo y ruidoso) -> lectura no válida
+SIM_MODES = {
+    "sin_estres": (830, 45),
+    "estres": (600, 8),
+    "mala_calidad": (830, 45),
+}
+
+
+def simulate(seconds: int, mode: str = "sin_estres") -> tuple[list[dict], int, int]:
+    """Señal PPG sintética del escenario `mode` (ver SIM_MODES), sin esperar."""
     rng = random.Random()
+    ibi_mean, ibi_sd = SIM_MODES[mode]
+    bad = mode == "mala_calidad"
+    # Con el dedo mal apoyado vuelve poca luz IR y casi todo es ruido.
+    ir_base, red_base, amp, noise = (20_000, 15_000, 150, 400) if bad else (110_000, 90_000, 900, 40)
     n = seconds * SAMPLE_RATE_HZ
     beats, t_beat = [], 300.0
     while t_beat < seconds * 1000 + 2000:
         beats.append(t_beat)
-        t_beat += rng.gauss(830, 45)
+        t_beat += rng.gauss(ibi_mean, ibi_sd)
     samples, b = [], 0
     for i in range(n):
         t = i * PERIOD_MS
@@ -146,8 +164,8 @@ def simulate(seconds: int) -> tuple[list[dict], int, int]:
         dt = (t - beats[b]) / 1000
         pulse = math.exp(-((dt - 0.12) / 0.06) ** 2) + 0.3 * math.exp(-((dt - 0.38) / 0.07) ** 2)
         drift = 600 * math.sin(2 * math.pi * t / 9000)
-        ir = 110_000 + drift - 900 * pulse + rng.gauss(0, 40)
-        red = 90_000 + drift * 0.8 - 600 * pulse + rng.gauss(0, 40)
+        ir = ir_base + drift - amp * pulse + rng.gauss(0, noise)
+        red = red_base + drift * 0.8 - amp * 0.66 * pulse + rng.gauss(0, noise)
         samples.append({"t": t, "ir": int(ir), "red": int(red)})
     finished_at = int(time.time() * 1000)
     return samples, finished_at - seconds * 1000, finished_at
@@ -303,7 +321,8 @@ def main() -> None:
     parser.add_argument("--segundos", type=int,
                         default=int(os.environ.get("SESSION_SECONDS", "300")),
                         help="duración de la captura (por defecto 300 = 5 min)")
-    parser.add_argument("--simular", action="store_true", help="sin sensor: señal sintética")
+    parser.add_argument("--simular", nargs="?", const="sin_estres", choices=sorted(SIM_MODES),
+                        help="sin sensor: señal sintética (por defecto sin_estres)")
     parser.add_argument("--sin-enviar", action="store_true", help="solo guarda en sesiones/")
     parser.add_argument("--reenviar", metavar="ARCHIVO", help="publica una sesión guardada")
     args = parser.parse_args()
@@ -320,7 +339,8 @@ def main() -> None:
 
     if args.simular:
         display.show(f"PIN: {pin}", "Simulando...")
-        samples, started_at, finished_at = simulate(args.segundos)
+        print(f"Simulación: {args.simular}")
+        samples, started_at, finished_at = simulate(args.segundos, args.simular)
     else:
         from max30102 import MAX30102
 
